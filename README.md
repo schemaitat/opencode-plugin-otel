@@ -89,6 +89,8 @@ All configuration is via environment variables. Set them in your shell profile (
 | `OPENCODE_OTLP_LOGS_INTERVAL` | `5000` | Logs export interval in milliseconds |
 | `OPENCODE_METRIC_PREFIX` | `opencode.` | Prefix for all metric names (e.g. set to `claude_code.` for Claude Code dashboard compatibility) |
 | `OPENCODE_DISABLE_METRICS` | _(unset)_ | Comma-separated list of metric name suffixes to disable (e.g. `cache.count,session.duration`) |
+| `OPENCODE_DISABLE_LOGS` | _(unset)_ | Set to any non-empty value to suppress all OTLP log events while leaving metrics and traces unchanged |
+| `OPENCODE_DISABLE_TRACES` | _(unset)_ | Comma-separated list of trace types to disable (`session`, `llm`, `tool`). Use `all`, `*`, `true`, or `1` to disable every trace type |
 | `OPENCODE_OTLP_HEADERS` | _(unset)_ | Comma-separated `key=value` headers added to all OTLP exports. **Keep out of version control — may contain sensitive auth tokens.** |
 | `OPENCODE_OTLP_HEADERS_HELPER` | _(unset)_ | Executable script/binary that returns dynamic OTLP headers as JSON after an auth failure. Helper headers override `OPENCODE_OTLP_HEADERS`. |
 | `OPENCODE_RESOURCE_ATTRIBUTES` | _(unset)_ | Comma-separated `key=value` pairs merged into the OTel resource. Example: `service.version=1.2.3,deployment.environment=production` |
@@ -173,6 +175,33 @@ export OPENCODE_DISABLE_METRICS="cache.count,session.duration,session.token.tota
 | `model.usage` | Per-model message counter — not emitted by Claude Code |
 | `retry.count` | API retry counter — not emitted by Claude Code |
 | `message.count` | Completed message counter — not emitted by Claude Code |
+
+### Disabling OTLP logs
+
+Use `OPENCODE_DISABLE_LOGS` to suppress every OTLP log event emitted by the plugin.
+
+```bash
+export OPENCODE_DISABLE_LOGS=1
+```
+
+This only disables OTLP logs. Metrics and traces continue to be exported unless they are disabled separately.
+
+### Disabling traces
+
+Use `OPENCODE_DISABLE_TRACES` to suppress one or more trace types.
+
+```bash
+# Disable one trace type
+export OPENCODE_DISABLE_TRACES="tool"
+
+# Disable multiple trace types
+export OPENCODE_DISABLE_TRACES="llm,tool"
+
+# Disable every trace type explicitly
+export OPENCODE_DISABLE_TRACES="all"
+```
+
+Accepted explicit "disable all traces" values are `all`, `*`, `true`, and `1`.
 
 ### SigNoz example
 

@@ -54,7 +54,7 @@ export function handleCommandExecuted(e: EventCommandExecuted, ctx: HandlerConte
     })
     ctx.log("debug", "otel: commit counter incremented", { sessionID: e.properties.sessionID })
   }
-  ctx.logger.emit({
+  ctx.emitLog({
     severityNumber: SeverityNumber.INFO,
     severityText: "INFO",
     timestamp: Date.now(),

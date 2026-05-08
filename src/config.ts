@@ -3,11 +3,16 @@ import { LEVELS, type Level } from "./types.ts"
 /** Accepted values for `OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE`. */
 export type MetricsTemporality = "cumulative" | "delta" | "lowmemory"
 
+/** Valid trace types emitted by the plugin. */
+export const TRACE_TYPES = ["session", "llm", "tool"] as const
+
 const VALID_TEMPORALITIES: ReadonlySet<MetricsTemporality> = new Set<MetricsTemporality>(["cumulative", "delta", "lowmemory"])
+const TRACE_DISABLE_ALL_VALUES = new Set(["all", "*", "true", "1"])
 
 /** Configuration values resolved from `OPENCODE_*` environment variables. */
 export type PluginConfig = {
   enabled: boolean
+  logsEnabled: boolean
   endpoint: string
   protocol: "grpc" | "http/protobuf"
   metricsInterval: number
@@ -28,6 +33,25 @@ export function parseEnvInt(key: string, fallback: number): number {
   if (!/^[1-9]\d*$/.test(raw)) return fallback
   const n = Number(raw)
   return Number.isSafeInteger(n) ? n : fallback
+}
+
+/** Returns `true` when the environment variable is present and non-empty. */
+function hasNonEmptyEnv(key: string): boolean {
+  return !!process.env[key]
+}
+
+/** Parses `OPENCODE_DISABLE_TRACES`, expanding explicit global values like `all`. */
+function parseDisabledTraces(raw: string | undefined): Set<string> {
+  const values = (raw ?? "")
+    .split(",")
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (values.some(value => TRACE_DISABLE_ALL_VALUES.has(value))) {
+    return new Set(TRACE_TYPES)
+  }
+
+  return new Set(values)
 }
 
 /**
@@ -68,15 +92,11 @@ export function loadConfig(): PluginConfig {
       .filter(Boolean),
   )
 
-  const disabledTraces = new Set(
-    (process.env["OPENCODE_DISABLE_TRACES"] ?? "")
-      .split(",")
-      .map(s => s.trim())
-      .filter(Boolean),
-  )
+  const disabledTraces = parseDisabledTraces(process.env["OPENCODE_DISABLE_TRACES"])
 
   return {
-    enabled: !!process.env["OPENCODE_ENABLE_TELEMETRY"],
+    enabled: hasNonEmptyEnv("OPENCODE_ENABLE_TELEMETRY"),
+    logsEnabled: !hasNonEmptyEnv("OPENCODE_DISABLE_LOGS"),
     endpoint: process.env["OPENCODE_OTLP_ENDPOINT"] ?? "http://localhost:4317",
     protocol: protocol === "http/protobuf" ? "http/protobuf" : "grpc",
     metricsInterval: parseEnvInt("OPENCODE_OTLP_METRICS_INTERVAL", 60000),

@@ -44,7 +44,7 @@ export function handleSessionCreated(e: EventSessionCreated, ctx: HandlerContext
     setBoundedMap(ctx.sessionSpans, sessionID, sessionSpan)
   }
 
-  ctx.logger.emit({
+  ctx.emitLog({
     severityNumber: SeverityNumber.INFO,
     severityText: "INFO",
     timestamp: createdAt,
@@ -118,7 +118,7 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
     ctx.sessionSpans.delete(sessionID)
   }
 
-  ctx.logger.emit({
+  ctx.emitLog({
     severityNumber: SeverityNumber.INFO,
     severityText: "INFO",
     timestamp: Date.now(),
@@ -159,7 +159,7 @@ export function handleSessionError(e: EventSessionError, ctx: HandlerContext) {
     }
   }
 
-  ctx.logger.emit({
+  ctx.emitLog({
     severityNumber: SeverityNumber.ERROR,
     severityText: "ERROR",
     timestamp: Date.now(),

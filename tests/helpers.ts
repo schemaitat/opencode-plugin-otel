@@ -1,5 +1,5 @@
 import type { HandlerContext, Instruments } from "../src/types.ts"
-import type { Logger as OtelLogger, LogRecord } from "@opentelemetry/api-logs"
+import type { LogRecord } from "@opentelemetry/api-logs"
 import type { Counter, Histogram, Span, SpanOptions, Tracer, Context, SpanContext, SpanStatus, Attributes } from "@opentelemetry/api"
 import { SpanStatusCode, trace } from "@opentelemetry/api"
 
@@ -137,7 +137,7 @@ export type MockContext = {
   tracer: SpyTracer
 }
 
-export function makeCtx(projectID = "proj_test", disabledMetrics: string[] = [], disabledTraces: string[] = []): MockContext {
+export function makeCtx(projectID = "proj_test", disabledMetrics: string[] = [], disabledTraces: string[] = [], logsEnabled = true): MockContext {
   const session = makeCounter()
   const token = makeCounter()
   const cost = makeCounter()
@@ -174,8 +174,11 @@ export function makeCtx(projectID = "proj_test", disabledMetrics: string[] = [],
   }
 
   const ctx: HandlerContext = {
-    logger: logger as unknown as OtelLogger,
     log: pluginLog.fn,
+    emitLog: (record) => {
+      if (!logsEnabled) return
+      logger.emit(record)
+    },
     instruments,
     commonAttrs: { "project.id": projectID },
     pendingToolSpans: new Map(),

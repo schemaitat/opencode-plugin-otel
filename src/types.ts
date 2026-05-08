@@ -1,5 +1,5 @@
 import type { Counter, Histogram, Span, Tracer } from "@opentelemetry/api"
-import type { Logger as OtelLogger } from "@opentelemetry/api-logs"
+import type { LogRecord } from "@opentelemetry/api-logs"
 
 /** Numeric priority map for log levels; higher value = higher severity. */
 export const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 } as const
@@ -64,8 +64,8 @@ export type SessionTotals = {
 
 /** Shared context threaded through every event handler. */
 export type HandlerContext = {
-  logger: OtelLogger
   log: PluginLogger
+  emitLog: (record: LogRecord) => void
   instruments: Instruments
   commonAttrs: CommonAttrs
   pendingToolSpans: Map<string, PendingToolSpan>

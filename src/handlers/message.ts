@@ -139,7 +139,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
   }
 
   if (assistant.error) {
-    ctx.logger.emit({
+    ctx.emitLog({
       severityNumber: SeverityNumber.ERROR,
       severityText: "ERROR",
       timestamp: assistant.time.created,
@@ -165,7 +165,7 @@ export function handleMessageUpdated(e: EventMessageUpdated, ctx: HandlerContext
     })
   }
 
-  ctx.logger.emit({
+  ctx.emitLog({
     severityNumber: SeverityNumber.INFO,
     severityText: "INFO",
     timestamp: assistant.time.created,
@@ -226,7 +226,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
         agent: subtask.agent,
       })
     }
-    ctx.logger.emit({
+    ctx.emitLog({
       severityNumber: SeverityNumber.INFO,
       severityText: "INFO",
       timestamp: Date.now(),
@@ -358,7 +358,7 @@ export function handleMessagePartUpdated(e: EventMessagePartUpdated, ctx: Handle
       ? { tool_result_size_bytes: Buffer.byteLength((toolPart.state as { output: string }).output, "utf8") }
       : { error: (toolPart.state as { error: string }).error }
 
-    ctx.logger.emit({
+    ctx.emitLog({
       severityNumber: success ? SeverityNumber.INFO : SeverityNumber.ERROR,
       severityText: success ? "INFO" : "ERROR",
       timestamp: start,

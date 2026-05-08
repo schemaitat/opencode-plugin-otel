@@ -21,7 +21,7 @@ export function handlePermissionReplied(e: EventPermissionReplied, ctx: HandlerC
   ctx.pendingPermissions.delete(permissionID)
   const decision = response === "allow" || response === "allowAlways" ? "accept" : "reject"
   ctx.log("debug", "otel: tool_decision emitted", { permissionID, sessionID, decision, source: response, tool_name: pending?.title ?? "unknown" })
-  ctx.logger.emit({
+  ctx.emitLog({
     severityNumber: SeverityNumber.INFO,
     severityText: "INFO",
     timestamp: Date.now(),

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test"
-import { parseEnvInt, loadConfig, resolveHelperPath, resolveLogLevel } from "../src/config.ts"
+import { parseEnvInt, loadConfig, resolveHelperPath, resolveLogLevel, TRACE_TYPES } from "../src/config.ts"
 
 describe("parseEnvInt", () => {
   test("returns fallback when env var is unset", () => {
@@ -52,6 +52,7 @@ describe("loadConfig", () => {
     "OPENCODE_RESOURCE_ATTRIBUTES",
     "OPENCODE_OTLP_METRICS_TEMPORALITY",
     "OPENCODE_DISABLE_METRICS",
+    "OPENCODE_DISABLE_LOGS",
     "OPENCODE_DISABLE_TRACES",
     "OTEL_EXPORTER_OTLP_HEADERS",
     "OTEL_RESOURCE_ATTRIBUTES",
@@ -63,6 +64,7 @@ describe("loadConfig", () => {
   test("defaults when no env vars set", () => {
     const cfg = loadConfig()
     expect(cfg.enabled).toBe(false)
+    expect(cfg.logsEnabled).toBe(true)
     expect(cfg.endpoint).toBe("http://localhost:4317")
     expect(cfg.protocol).toBe("grpc")
     expect(cfg.metricsInterval).toBe(60000)
@@ -72,6 +74,11 @@ describe("loadConfig", () => {
   test("enabled when OPENCODE_ENABLE_TELEMETRY is set", () => {
     process.env["OPENCODE_ENABLE_TELEMETRY"] = "1"
     expect(loadConfig().enabled).toBe(true)
+  })
+
+  test("logsEnabled is false when OPENCODE_DISABLE_LOGS is set", () => {
+    process.env["OPENCODE_DISABLE_LOGS"] = "1"
+    expect(loadConfig().logsEnabled).toBe(false)
   })
 
   test("reads custom endpoint", () => {
@@ -258,6 +265,21 @@ describe("loadConfig", () => {
     expect(disabledTraces.has("session")).toBe(true)
     expect(disabledTraces.has("unknown_type")).toBe(true)
     expect(disabledTraces.size).toBe(2)
+  })
+
+  test("disabledTraces expands all to every known trace type", () => {
+    process.env["OPENCODE_DISABLE_TRACES"] = "all"
+    expect(loadConfig().disabledTraces).toEqual(new Set(TRACE_TYPES))
+  })
+
+  test("disabledTraces expands wildcard to every known trace type", () => {
+    process.env["OPENCODE_DISABLE_TRACES"] = "*"
+    expect(loadConfig().disabledTraces).toEqual(new Set(TRACE_TYPES))
+  })
+
+  test("disabledTraces expands boolean-style values to every known trace type", () => {
+    process.env["OPENCODE_DISABLE_TRACES"] = "true"
+    expect(loadConfig().disabledTraces).toEqual(new Set(TRACE_TYPES))
   })
 })
 
