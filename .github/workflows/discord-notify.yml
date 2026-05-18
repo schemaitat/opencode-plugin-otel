@@ -151,6 +151,10 @@ jobs:
           DISCORD_PAYLOAD: ${{ steps.payload.outputs.json }}
         run: |
           curl --fail --silent --show-error \
+            --connect-timeout 10 \
+            --max-time 30 \
+            --retry 3 \
+            --retry-delay 2 \
             -H "Content-Type: application/json" \
             -d "$DISCORD_PAYLOAD" \
             "$DISCORD_WEBHOOK"
