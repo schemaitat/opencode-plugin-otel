@@ -19,11 +19,18 @@ function exportersOf(currentProviders: OtelProviders) {
   const tracerProvider = currentProviders.tracerProvider as unknown as {
     _activeSpanProcessor: { _spanProcessors: Array<{ _exporter: unknown }> }
   }
+  const metricCollector = meterProvider._sharedState.metricCollectors[0]
+  const logProcessor = loggerProvider._sharedState.activeProcessor.processors[0]
+  const spanProcessor = tracerProvider._activeSpanProcessor._spanProcessors[0]
+
+  if (!metricCollector || !logProcessor || !spanProcessor) {
+    throw new Error("Expected OTEL providers to have active metric/log/trace exporters")
+  }
 
   return {
-    metric: meterProvider._sharedState.metricCollectors[0]!._metricReader._exporter,
-    log: loggerProvider._sharedState.activeProcessor.processors[0]!._exporter,
-    trace: tracerProvider._activeSpanProcessor._spanProcessors[0]!._exporter,
+    metric: metricCollector._metricReader._exporter,
+    log: logProcessor._exporter,
+    trace: spanProcessor._exporter,
   }
 }
 
@@ -70,10 +77,14 @@ describe("buildResource", () => {
 
 describe("setupOtel", () => {
   afterEach(async () => {
-    await providers?.tracerProvider.shutdown()
-    await providers?.loggerProvider.shutdown()
-    await providers?.meterProvider.shutdown()
+    const current = providers
     providers = undefined
+    if (!current) return
+    await Promise.allSettled([
+      current.tracerProvider.shutdown(),
+      current.loggerProvider.shutdown(),
+      current.meterProvider.shutdown(),
+    ])
   })
 
   test("uses protobuf HTTP exporters for http/protobuf", async () => {
