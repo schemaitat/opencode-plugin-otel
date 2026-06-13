@@ -1,6 +1,6 @@
 import { SeverityNumber } from "@opentelemetry/api-logs"
 import { SpanStatusCode, trace } from "@opentelemetry/api"
-import type { EventSessionCreated, EventSessionIdle, EventSessionError, EventSessionStatus } from "@opencode-ai/sdk"
+import type { EventSessionCreated, EventSessionIdle, EventSessionDeleted, EventSessionError, EventSessionStatus } from "@opencode-ai/sdk"
 import { AGENT_NAME, OpenInferenceSpanKind, SemanticConventions, SESSION_ID } from "@arizeai/openinference-semantic-conventions"
 import { errorSummary, setBoundedMap, isMetricEnabled, isTraceEnabled } from "../util.ts"
 import type { HandlerContext } from "../types.ts"
@@ -80,12 +80,20 @@ function sweepSession(sessionID: string, ctx: HandlerContext) {
   }
 }
 
-/** Emits a `session.idle` log event, records duration and session total histograms, ends the session span, and clears pending state. */
+/**
+ * Emits a `session.idle` log event and records duration/total histograms for the turn
+ * that just completed, then sweeps per-turn pending state (tool/message spans, pending
+ * permissions, the cached user prompt).
+ *
+ * Unlike a one-shot turn, an opencode session stays alive and may receive further user
+ * messages, so `session.total_*` totals and the root `opencode.session` span are kept
+ * open across `session.idle` events: ending the span here would otherwise orphan every
+ * subsequent turn's LLM/tool spans as new root traces. The span and totals are only
+ * finalized in `handleSessionDeleted` (or `handleSessionError`/shutdown).
+ */
 export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
   const sessionID = e.properties.sessionID
   const totals = ctx.sessionTotals.get(sessionID)
-  ctx.sessionTotals.delete(sessionID)
-  ctx.sessionDiffTotals.delete(sessionID)
   sweepSession(sessionID, ctx)
 
   const attrs = { ...ctx.commonAttrs, "session.id": sessionID }
@@ -105,18 +113,13 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
   }
 
   const sessionSpan = ctx.sessionSpans.get(sessionID)
-  if (sessionSpan) {
-    if (totals) {
-      sessionSpan.setAttributes({
-        [AGENT_NAME]: totals.agent,
-        "session.total_tokens": totals.tokens,
-        "session.total_cost_usd": totals.cost,
-        "session.total_messages": totals.messages,
-      })
-    }
-    sessionSpan.setStatus({ code: SpanStatusCode.OK })
-    sessionSpan.end()
-    ctx.sessionSpans.delete(sessionID)
+  if (sessionSpan && totals) {
+    sessionSpan.setAttributes({
+      [AGENT_NAME]: totals.agent,
+      "session.total_tokens": totals.tokens,
+      "session.total_cost_usd": totals.cost,
+      "session.total_messages": totals.messages,
+    })
   }
 
   ctx.emitLog({
@@ -138,6 +141,37 @@ export function handleSessionIdle(e: EventSessionIdle, ctx: HandlerContext) {
     sessionID,
     ...(totals ? { duration_ms, total_tokens: totals.tokens, total_cost_usd: totals.cost, total_messages: totals.messages } : {}),
   })
+}
+
+/**
+ * Final cleanup when a session is removed: ends the root `opencode.session` span with the
+ * last known totals, and clears the session's accumulated totals and pending state. This is
+ * the counterpart to the "keep the span open across `session.idle`" behavior above — it's
+ * where a long-lived session's span and totals actually get torn down.
+ */
+export function handleSessionDeleted(e: EventSessionDeleted, ctx: HandlerContext) {
+  const sessionID = e.properties.info.id
+  const totals = ctx.sessionTotals.get(sessionID)
+  ctx.sessionTotals.delete(sessionID)
+  ctx.sessionDiffTotals.delete(sessionID)
+  sweepSession(sessionID, ctx)
+
+  const sessionSpan = ctx.sessionSpans.get(sessionID)
+  if (sessionSpan) {
+    if (totals) {
+      sessionSpan.setAttributes({
+        [AGENT_NAME]: totals.agent,
+        "session.total_tokens": totals.tokens,
+        "session.total_cost_usd": totals.cost,
+        "session.total_messages": totals.messages,
+      })
+    }
+    sessionSpan.setStatus({ code: SpanStatusCode.OK })
+    sessionSpan.end()
+    ctx.sessionSpans.delete(sessionID)
+  }
+
+  ctx.log("debug", "otel: session.deleted", { sessionID })
 }
 
 /** Emits a `session.error` log event, ends the session span with error status, and clears any pending state for the session. */

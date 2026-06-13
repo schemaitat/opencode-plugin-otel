@@ -1,12 +1,13 @@
 import type { Plugin } from "@opencode-ai/plugin"
 import { SeverityNumber } from "@opentelemetry/api-logs"
 import { logs } from "@opentelemetry/api-logs"
-import { ROOT_CONTEXT, trace } from "@opentelemetry/api"
+import { ROOT_CONTEXT, SpanStatusCode, trace } from "@opentelemetry/api"
 import { AGENT_NAME } from "@arizeai/openinference-semantic-conventions"
 import pkg from "../package.json" with { type: "json" }
 import type {
   EventSessionCreated,
   EventSessionIdle,
+  EventSessionDeleted,
   EventSessionError,
   EventSessionStatus,
   EventMessageUpdated,
@@ -21,7 +22,7 @@ import { loadConfig, resolveHelperPath, resolveLogLevel } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
 import { setupOtel, createInstruments } from "./otel.ts"
 import { remoteParentContext } from "./trace-context.ts"
-import { handleSessionCreated, handleSessionIdle, handleSessionError, handleSessionStatus } from "./handlers/session.ts"
+import { handleSessionCreated, handleSessionIdle, handleSessionDeleted, handleSessionError, handleSessionStatus } from "./handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handlePermissionUpdated, handlePermissionReplied } from "./handlers/permission.ts"
 import { handleSessionDiff, handleCommandExecuted } from "./handlers/activity.ts"
@@ -141,6 +142,23 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   }
 
   async function shutdown() {
+    // Session spans are kept open across `session.idle` so later turns nest under them
+    // (see handleSessionIdle). On process exit, end any still-open session spans so
+    // they're flushed rather than dropped.
+    for (const [sessionID, sessionSpan] of sessionSpans) {
+      const totals = sessionTotals.get(sessionID)
+      if (totals) {
+        sessionSpan.setAttributes({
+          [AGENT_NAME]: totals.agent,
+          "session.total_tokens": totals.tokens,
+          "session.total_cost_usd": totals.cost,
+          "session.total_messages": totals.messages,
+        })
+      }
+      sessionSpan.setStatus({ code: SpanStatusCode.OK })
+      sessionSpan.end()
+    }
+    sessionSpans.clear()
     await Promise.allSettled([meterProvider.shutdown(), loggerProvider.shutdown(), tracerProvider.shutdown()])
   }
 
@@ -224,6 +242,9 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
           break
         case "session.idle":
           handleSessionIdle(event as EventSessionIdle, ctx)
+          break
+        case "session.deleted":
+          handleSessionDeleted(event as EventSessionDeleted, ctx)
           break
         case "session.error":
           handleSessionError(event as EventSessionError, ctx)
