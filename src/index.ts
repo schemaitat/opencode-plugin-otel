@@ -142,9 +142,6 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   }
 
   async function shutdown() {
-    // Session spans are kept open across `session.idle` so later turns nest under them
-    // (see handleSessionIdle). On process exit, end any still-open session spans so
-    // they're flushed rather than dropped.
     for (const [sessionID, sessionSpan] of sessionSpans) {
       const totals = sessionTotals.get(sessionID)
       if (totals) {
