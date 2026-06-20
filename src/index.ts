@@ -108,8 +108,8 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const messageOutputs = new Map()
   const { disabledMetrics, disabledTraces } = config
   const commonAttrs = {
-    "project.id": project.id,
     ...parseAttributePairs(config.spanAttributes),
+    "project.id": project.id,
   } as const
 
   if (disabledMetrics.size > 0) {
