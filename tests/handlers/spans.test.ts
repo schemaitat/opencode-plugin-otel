@@ -16,13 +16,14 @@ import {
   TOOL_NAME,
 } from "@arizeai/openinference-semantic-conventions"
 import type { Span } from "@opentelemetry/api"
-import { handleSessionCreated, handleSessionIdle, handleSessionError } from "../../src/handlers/session.ts"
+import { handleSessionCreated, handleSessionIdle, handleSessionDeleted, handleSessionError } from "../../src/handlers/session.ts"
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "../../src/handlers/message.ts"
 import { remoteParentContext } from "../../src/trace-context.ts"
 import { makeCtx, makeTracer, type SpySpan } from "../helpers.ts"
 import type {
   EventSessionCreated,
   EventSessionIdle,
+  EventSessionDeleted,
   EventSessionError,
   EventMessageUpdated,
   EventMessagePartUpdated,
@@ -39,6 +40,10 @@ function makeSessionCreated(sessionID: string, createdAt = 1000, parentID?: stri
 
 function makeSessionIdle(sessionID: string): EventSessionIdle {
   return { type: "session.idle", properties: { sessionID } } as EventSessionIdle
+}
+
+function makeSessionDeleted(sessionID: string): EventSessionDeleted {
+  return { type: "session.deleted", properties: { info: { id: sessionID } } } as unknown as EventSessionDeleted
 }
 
 function makeSessionError(sessionID?: string, error?: { name: string }): EventSessionError {
@@ -157,17 +162,17 @@ describe("session spans", () => {
     expect(tracer.spans[0]!.parentSpan?.spanContext().spanId).toBe("00f067aa0ba902b7")
   })
 
-  test("ends session span with OK status on session.idle", () => {
+  test("keeps session span open across session.idle so later turns can nest under it", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_1"), ctx)
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     const span = tracer.spans[0]!
-    expect(span.ended).toBe(true)
-    expect(span.status.code).toBe(SpanStatusCode.OK)
-    expect(ctx.sessionSpans.has("ses_1")).toBe(false)
+    expect(span.ended).toBe(false)
+    expect(ctx.sessionSpans.has("ses_1")).toBe(true)
+    expect(ctx.sessionTotals.has("ses_1")).toBe(true)
   })
 
-  test("sets session total attributes before ending on idle", () => {
+  test("sets session total attributes on session.idle without ending the span", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_1"), ctx)
     ctx.sessionTotals.set("ses_1", { startMs: Date.now() - 100, tokens: 250, cost: 0.05, messages: 3, agent: "build", agentType: "primary" })
@@ -178,6 +183,31 @@ describe("session spans", () => {
     expect(span.attributes["session.total_messages"]).toBe(3)
     expect(span.attributes[AGENT_NAME]).toBe("build")
     expect(span.attributes["agent.type"]).toBe("primary")
+    expect(span.ended).toBe(false)
+  })
+
+  test("ends session span with OK status and clears totals on session.deleted", () => {
+    const { ctx, tracer } = makeCtx()
+    handleSessionCreated(makeSessionCreated("ses_1"), ctx)
+    ctx.sessionTotals.set("ses_1", { startMs: Date.now() - 100, tokens: 250, cost: 0.05, messages: 3, agent: "build", agentType: "primary" })
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+    handleSessionDeleted(makeSessionDeleted("ses_1"), ctx)
+    const span = tracer.spans[0]!
+    expect(span.ended).toBe(true)
+    expect(span.status.code).toBe(SpanStatusCode.OK)
+    expect(span.attributes["session.total_tokens"]).toBe(250)
+    expect(ctx.sessionSpans.has("ses_1")).toBe(false)
+    expect(ctx.sessionTotals.has("ses_1")).toBe(false)
+  })
+
+  test("a second turn's LLM span nests under the still-open session span after idle", () => {
+    const { ctx, tracer } = makeCtx()
+    handleSessionCreated(makeSessionCreated("ses_1"), ctx)
+    handleSessionIdle(makeSessionIdle("ses_1"), ctx)
+    startMessageSpan("ses_1", "msg_2", "claude-3-5-sonnet", "anthropic", 5000, ctx)
+    const sessionSpan = tracer.spans[0]!
+    const llmSpan = tracer.spans[1]!
+    expect(llmSpan.parentSpan).toBe(sessionSpan)
   })
 
   test("ends session span with ERROR status on session.error", () => {
