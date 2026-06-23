@@ -18,7 +18,7 @@ import type {
   EventCommandExecuted,
 } from "@opencode-ai/sdk"
 import { LEVELS, type Level, type HandlerContext } from "./types.ts"
-import { loadConfig, resolveHelperPath, resolveLogLevel } from "./config.ts"
+import { loadConfig, parseAttributePairs, resolveHelperPath, resolveLogLevel } from "./config.ts"
 import { probeEndpoint } from "./probe.ts"
 import { setupOtel, createInstruments } from "./otel.ts"
 import { remoteParentContext } from "./trace-context.ts"
@@ -26,6 +26,7 @@ import { handleSessionCreated, handleSessionIdle, handleSessionDeleted, handleSe
 import { handleMessageUpdated, handleMessagePartUpdated, startMessageSpan } from "./handlers/message.ts"
 import { handlePermissionUpdated, handlePermissionReplied } from "./handlers/permission.ts"
 import { handleSessionDiff, handleCommandExecuted } from "./handlers/activity.ts"
+import { agentAttrs, getSessionAgentMeta } from "./util.ts"
 
 const PLUGIN_VERSION: string = (pkg as { version?: string }).version ?? "unknown"
 
@@ -63,6 +64,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
     headersSet: !!config.otlpHeaders,
     headersHelperSet: !!config.otlpHeadersHelper,
     resourceAttributesSet: !!config.resourceAttributes,
+    spanAttributesSet: !!config.spanAttributes,
   })
 
   const probe = await probeEndpoint(config.endpoint)
@@ -107,7 +109,10 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
   const sessionInputs = new Map()
   const messageOutputs = new Map()
   const { disabledMetrics, disabledTraces } = config
-  const commonAttrs = { "project.id": project.id } as const
+  const commonAttrs = {
+    ...parseAttributePairs(config.spanAttributes),
+    "project.id": project.id,
+  } as const
 
   if (disabledMetrics.size > 0) {
     await log("info", "metrics disabled", { disabled: [...disabledMetrics] })
@@ -193,10 +198,11 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
 
     "chat.message": safe("chat.message", async (input, output) => {
       const agent = input.agent ?? "unknown"
+      const { agentType } = getSessionAgentMeta(input.sessionID, ctx)
       const totals = sessionTotals.get(input.sessionID)
       if (totals) totals.agent = agent
       const sessionSpan = sessionSpans.get(input.sessionID)
-      if (sessionSpan) sessionSpan.setAttribute(AGENT_NAME, agent)
+      if (sessionSpan) sessionSpan.setAttributes({ [AGENT_NAME]: agent, "agent.type": agentType })
       const promptText = output.parts.map((part) => {
         switch (part.type) {
           case "text":
@@ -222,7 +228,7 @@ export const OtelPlugin: Plugin = async ({ project, client, directory, worktree 
         attributes: {
           "event.name": "user_prompt",
           "session.id": input.sessionID,
-          agent,
+          ...agentAttrs(agent, agentType),
           prompt_length: promptLength,
           model: input.model
             ? `${input.model.providerID}/${input.model.modelID}`

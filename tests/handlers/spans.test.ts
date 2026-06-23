@@ -112,10 +112,11 @@ describe("session spans", () => {
   })
 
   test("session span carries session.id attribute", () => {
-    const { ctx, tracer } = makeCtx()
+    const { ctx, tracer } = makeCtx("proj_test", [], [], true, { team: "platform" })
     handleSessionCreated(makeSessionCreated("ses_1"), ctx)
     expect(tracer.spans[0]!.attributes["session.id"]).toBe("ses_1")
     expect(tracer.spans[0]!.attributes[SESSION_ID]).toBe("ses_1")
+    expect(tracer.spans[0]!.attributes["team"]).toBe("platform")
   })
 
   test("session span is tagged as an OpenInference agent span", () => {
@@ -174,19 +175,21 @@ describe("session spans", () => {
   test("sets session total attributes on session.idle without ending the span", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_1"), ctx)
-    ctx.sessionTotals.set("ses_1", { startMs: Date.now() - 100, tokens: 250, cost: 0.05, messages: 3, agent: "build" })
+    ctx.sessionTotals.set("ses_1", { startMs: Date.now() - 100, tokens: 250, cost: 0.05, messages: 3, agent: "build", agentType: "primary" })
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     const span = tracer.spans[0]!
     expect(span.attributes["session.total_tokens"]).toBe(250)
     expect(span.attributes["session.total_cost_usd"]).toBe(0.05)
     expect(span.attributes["session.total_messages"]).toBe(3)
+    expect(span.attributes[AGENT_NAME]).toBe("build")
+    expect(span.attributes["agent.type"]).toBe("primary")
     expect(span.ended).toBe(false)
   })
 
   test("ends session span with OK status and clears totals on session.deleted", () => {
     const { ctx, tracer } = makeCtx()
     handleSessionCreated(makeSessionCreated("ses_1"), ctx)
-    ctx.sessionTotals.set("ses_1", { startMs: Date.now() - 100, tokens: 250, cost: 0.05, messages: 3, agent: "build" })
+    ctx.sessionTotals.set("ses_1", { startMs: Date.now() - 100, tokens: 250, cost: 0.05, messages: 3, agent: "build", agentType: "primary" })
     handleSessionIdle(makeSessionIdle("ses_1"), ctx)
     handleSessionDeleted(makeSessionDeleted("ses_1"), ctx)
     const span = tracer.spans[0]!
@@ -266,10 +269,13 @@ describe("tool spans", () => {
 
   test("tool span carries tool.name attribute", () => {
     const { ctx, tracer } = makeCtx()
+    ctx.sessionTotals.set("ses_1", { startMs: 0, tokens: 0, cost: 0, messages: 0, agent: "build", agentType: "primary" })
     handleMessagePartUpdated(makeToolPartUpdated("running", { tool: "read_file" }), ctx)
     expect(tracer.spans[0]!.attributes["tool.name"]).toBe("read_file")
     expect(tracer.spans[0]!.attributes[TOOL_NAME]).toBe("read_file")
     expect(tracer.spans[0]!.attributes[OPENINFERENCE_SPAN_KIND]).toBe(OpenInferenceSpanKind.TOOL)
+    expect(tracer.spans[0]!.attributes[AGENT_NAME]).toBe("build")
+    expect(tracer.spans[0]!.attributes["agent.type"]).toBe("primary")
   })
 
   test("ends tool span with OK status on completion", () => {
@@ -394,6 +400,7 @@ describe("message (LLM) spans", () => {
   test("handleMessageUpdated sets OpenInference token attributes on span", () => {
     const { ctx, tracer } = makeCtx()
     startMessageSpan("ses_1", "msg_1", "claude-3-5-sonnet", "anthropic", 1000, ctx)
+    ctx.sessionTotals.set("ses_1", { startMs: 0, tokens: 0, cost: 0, messages: 0, agent: "review", agentType: "subagent" })
     handleMessageUpdated(
       makeAssistantMessageUpdated({
         id: "msg_1",
@@ -407,6 +414,8 @@ describe("message (LLM) spans", () => {
     expect(span.attributes[LLM_TOKEN_COUNT_COMPLETION_DETAILS_REASONING]).toBe(10)
     expect(span.attributes[LLM_TOKEN_COUNT_PROMPT_DETAILS_CACHE_READ]).toBe(30)
     expect(span.attributes[LLM_TOKEN_COUNT_PROMPT_DETAILS_CACHE_WRITE]).toBe(5)
+    expect(span.attributes[AGENT_NAME]).toBe("review")
+    expect(span.attributes["agent.type"]).toBe("subagent")
   })
 
   test("handleMessageUpdated no-ops span handling when no span exists for messageID", () => {
